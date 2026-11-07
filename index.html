@@ -190,6 +190,7 @@ table.g{border-collapse:separate;border-spacing:0;width:100%;font-size:.92rem}
 table.g th,table.g td{padding:6px 8px;border-bottom:1px solid #e8ecf6;border-right:1px solid #eef1f9;text-align:center;white-space:nowrap}
 table.g thead th{position:sticky;top:0;background:#eaeffb;z-index:2;color:var(--navy);font-weight:700}
 table.g thead tr:nth-child(2) th{top:34px}
+table.g thead tr:nth-child(3) th{top:68px}
 table.g td.name input.nm{width:100%;min-width:260px;font-family:var(--am)}
 table.g td.name,table.g th.name{text-align:left;position:sticky;left:0;background:#fff;z-index:1;min-width:190px;font-family:var(--am)}
 table.g thead th.name{background:#eaeffb;z-index:3}
@@ -198,6 +199,8 @@ table.g tbody tr:hover td.name{background:#f8faff}
 .cell{width:34px;height:30px;border-radius:7px;border:1px solid #cbd3ea;background:#fff;cursor:pointer;font-size:1.05rem;font-weight:700;line-height:1}
 .cell.yes{background:#e3f6ea;color:var(--ok);border-color:#9bd5b2}
 .cell.no{background:#fde8e5;color:var(--bad);border-color:#efb0a8}
+.adate{width:64px;padding:3px 4px;font-size:.78rem;text-align:center;border:1px solid #cbd3ea;border-radius:6px;font-family:var(--am)}
+.wkctl{display:inline-flex;align-items:center;gap:6px;font-size:.9rem}.wkctl b{min-width:1ch;text-align:center}.mini:disabled{opacity:.4;cursor:not-allowed}
 .mini{border:1px solid #b9c4e6;background:#fff;border-radius:6px;cursor:pointer;font-family:var(--am);font-weight:700;color:var(--navy);padding:2px 8px}
 .mk{width:62px;text-align:center;padding:5px 4px}
 .mk.bad{border-color:var(--bad);background:#fde8e5}
@@ -581,7 +584,7 @@ async function studentSnapshot(student, memo) {
     const c = clsIn(student, y); if (!c) continue;
     const mm = { m1: await mget(marksKey(1, c, y)), m2: {} }, rr = buildResults([student], mm, 'y')[0];
     const att = [];
-    for (let m = 0; m < 12; m++) { const d = await mget(attKey(m, c, y)), x = d[student.id] || {}; const held = ACOLS.filter(k => x[k] !== undefined).length, present = ACOLS.filter(k => x[k] === 1).length; if (held) att.push({ m, held, present }); }
+    for (let m = 0; m < 12; m++) { const d = await mget(attKey(m, c, y)), x = d[student.id] || {}; const cs = attCols(d), held = cs.filter(k => x[k] !== undefined).length, present = cs.filter(k => x[k] === 1).length; if (held) att.push({ m, held, present }); }
     out.push({ y, c, avg: rr.avg, subj: rr.subj, att });
   }
   return { name: student.name, studentNo: student.studentNo, cls: student.cls, christian: student.christian || '', age: student.age || '', guardian: student.guardian || '', regDate: student.regDate || '', years: out };
@@ -1069,6 +1072,9 @@ async function submitReg(form){
 
 /* ---------- Attendance ---------- */
 const ACOLS = []; for (let w=1; w<=5; w++) ACOLS.push(w+'s', w+'u');
+/* Per-month settings live in data._m = { w: number of weeks (4 or 5), d: { '1s': 'date text', ... } } */
+const attWeeks = d => { const m = d && d._m; if (m && (m.w === 4 || m.w === 5)) return m.w; return Object.keys(d || {}).some(k => k !== '_m' && d[k] && (d[k]['5s'] !== undefined || d[k]['5u'] !== undefined)) ? 5 : 4; };
+const attCols = d => ACOLS.slice(0, attWeeks(d) * 2);
 VIEWS.attendance = async () => {
   if (!can('attendance.edit')) return noAccess();
   const list = studentsOf(App.cls);
@@ -1078,26 +1084,30 @@ VIEWS.attendance = async () => {
   return `<div class="card"><h2>Attendance <small>ተገኝነት · ${esc(VY())} ዓ.ም</small></h2>
   ${pastNote()}<div class="bar2 noprint"><label>Class<select id="acls">${clsOpts(App.cls)}</select></label>${yearSel()}
     <label>Month · ወር<select id="amon">${MONTHS.map((m,i)=>`<option value="${i}"${i===App.month?' selected':''}>${m}</option>`).join('')}</select></label>
+    <span class="wkctl" id="wkctl"></span>
     <span class="sp"></span><button class="btn alt" data-action="exportAttendance">Excel</button>${zoomCtl('att')}</div>
-  <p class="noprint" style="margin:0 0 10px;font-size:.85rem;color:#44527d">Tap a box to cycle: ✓ present → ✗ absent → empty. ቅ = ቅዳሜ (Saturday), እ = እሁድ (Sunday). Tap ቅ / እ in the header to mark everyone present.</p>
+  <p class="noprint" style="margin:0 0 10px;font-size:.85rem;color:#44527d">Tap a box to cycle: ✓ present → ✗ absent → empty. ቅ = ቅዳሜ (Saturday), እ = እሁድ (Sunday). Tap ቅ / እ in the header to mark everyone present. Write each day's date in the ቀን box under it. Use + / − to add or remove Week 5 for this month.</p>
   <div class="printonly"><h2>ክፍል ${esc(App.cls)} · ${MONTHS[App.month]} · ${esc(VY())} ዓ.ም</h2></div>
   <div class="tw"><div class="zz" id="zz-att"><table class="g" id="attT"></table></div></div></div>`;
 };
 VIEWS.attendance_after = () => { paintAtt(); applyZoom('att'); };
+function paintWk(){ const el = $('#wkctl'); if (!el) return; const W = attWeeks(App.ctx.data); el.innerHTML = `<label>Weeks · ሳምንት</label> <button class="mini" data-action="attweeks" data-d="-1" ${W<=4?'disabled':''} aria-label="Remove week 5">−</button> <b>${W}</b> <button class="mini" data-action="attweeks" data-d="1" ${W>=5?'disabled':''} aria-label="Add week 5">+</button>`; }
 function paintAtt(){
   const { list, data } = App.ctx;
-  const held = ACOLS.map(c => list.some(s => data[s.id] && data[s.id][c] !== undefined));
-  const nHeld = held.filter(Boolean).length;
-  let h = `<thead><tr><th rowspan="2">#</th><th class="name" rowspan="2">Name · ስም</th>${[1,2,3,4,5].map(w=>`<th colspan="2">Week ${w}</th>`).join('')}<th rowspan="2">Present</th><th rowspan="2">%</th></tr><tr>`;
-  h += ACOLS.map(c => `<th><button class="mini" data-action="attall" data-col="${c}" title="Mark everyone present">${c.endsWith('s')?'ቅ':'እ'}</button></th>`).join('') + '</tr></thead><tbody>';
-  if (!list.length) h += '<tr><td colspan="14" class="empty">No students in this class yet.</td></tr>';
+  const cols = attCols(data), W = attWeeks(data), dates = (data._m && data._m.d) || {};
+  const nHeld = cols.filter(c => list.some(s => data[s.id] && data[s.id][c] !== undefined)).length;
+  const wk = Array.from({length:W}, (_,i) => i+1);
+  let h = `<thead><tr><th rowspan="3">#</th><th class="name" rowspan="3">Name · ስም</th>${wk.map(w=>`<th colspan="2">Week ${w}</th>`).join('')}<th rowspan="3">Present</th><th rowspan="3">%</th></tr><tr>`;
+  h += cols.map(c => `<th><button class="mini" data-action="attall" data-col="${c}" title="Mark everyone present">${c.endsWith('s')?'ቅ':'እ'}</button></th>`).join('') + '</tr><tr>';
+  h += cols.map(c => `<th><input class="adate" type="text" maxlength="12" placeholder="ቀን" data-col="${c}" value="${esc(dates[c] || '')}" aria-label="Date ${c}"></th>`).join('') + '</tr></thead><tbody>';
+  if (!list.length) h += `<tr><td colspan="${cols.length+4}" class="empty">No students in this class yet.</td></tr>`;
   list.forEach((s,i) => {
-    const d = data[s.id] || {}; const pres = ACOLS.filter(c => d[c] === 1).length;
-    h += `<tr><td>${i+1}</td><td class="name">${esc(s.name)}</td>` + ACOLS.map(c => {
+    const d = data[s.id] || {}; const pres = cols.filter(c => d[c] === 1).length;
+    h += `<tr><td>${i+1}</td><td class="name">${esc(s.name)}</td>` + cols.map(c => {
       const v = d[c]; return `<td><button class="cell ${v===1?'yes':v===0?'no':''}" data-action="att" data-sid="${s.id}" data-col="${c}" aria-label="${esc(s.name)} ${c}">${v===1?'✓':v===0?'✗':''}</button></td>`;
     }).join('') + `<td class="calc">${pres}</td><td class="calc">${nHeld ? Math.round(pres/nHeld*100)+'%' : ''}</td></tr>`;
   });
-  $('#attT').innerHTML = h + '</tbody>';
+  $('#attT').innerHTML = h + '</tbody>'; paintWk();
 }
 
 /* ---------- Marks ---------- */
@@ -1519,8 +1529,8 @@ async function openFile(id){
     const [mm, atts] = await Promise.all([loadMarks(c, y), Promise.all(MONTHS.map((_,i) => Store.get(attKey(i, c, y), {})))]);
     const R = {}; ['1','2','y'].forEach(p => { R[p] = buildResults(list, mm, p).find(x => x.st.id === id); });
     const attRows = atts.map((d,i) => {
-      const held = ACOLS.filter(k => list.some(x => d[x.id] && d[x.id][k] !== undefined)).length;
-      if (!held) return ''; const mine = d[id] || {}; const pres = ACOLS.filter(k => mine[k] === 1).length;
+      const cs = attCols(d), held = cs.filter(k => list.some(x => d[x.id] && d[x.id][k] !== undefined)).length;
+      if (!held) return ''; const mine = d[id] || {}; const pres = cs.filter(k => mine[k] === 1).length;
       return `<tr><td class="name">${MONTHS[i]}</td><td>${pres}</td><td>${held}</td><td>${Math.round(pres/held*100)}%</td></tr>`;
     }).join('');
     const hasData = R['1'].total != null || R['2'].total != null || attRows;
@@ -1557,9 +1567,10 @@ function exportStudents(){
 async function exportAttendance(){
   if(!can('attendance.edit') || !canClass(App.cls)) return deny();
   const list=studentsOf(App.cls), y=VY(), key=attKey(App.month,App.cls), data=await Store.get(key,{});
-  const headers=['#','Student name','Student ID','Christian name','Class','Sex','Age','Guardian','Phone',...ACOLS.map(c=>c.endsWith('s')?'ቅ':'እ'),'Present','%'];
-  const held=ACOLS.filter(c=>list.some(st=>data[st.id]&&data[st.id][c]!==undefined)).length;
-  const rows=list.map((st,i)=>{const d=data[st.id]||{}, p=ACOLS.filter(c=>d[c]===1).length; return [i+1,st.name,st.studentNo||'',st.christian||'',clsIn(st,y)||st.cls||'',st.gender==='M'?'ወንድ':st.gender==='F'?'ሴት':'',st.age||'',st.guardian||'',st.phone||'',...ACOLS.map(c=>d[c]===1?'✓':d[c]===0?'✗':''),p,held?Math.round(p/held*100)+'%':''];});
+  const cols=attCols(data), dts=(data._m&&data._m.d)||{};
+  const headers=['#','Student name','Student ID','Christian name','Class','Sex','Age','Guardian','Phone',...cols.map(c=>'Week '+c[0]+' '+(c.endsWith('s')?'ቅ':'እ')+(dts[c]?' ('+dts[c]+')':'')),'Present','%'];
+  const held=cols.filter(c=>list.some(st=>data[st.id]&&data[st.id][c]!==undefined)).length;
+  const rows=list.map((st,i)=>{const d=data[st.id]||{}, p=cols.filter(c=>d[c]===1).length; return [i+1,st.name,st.studentNo||'',st.christian||'',clsIn(st,y)||st.cls||'',st.gender==='M'?'ወንድ':st.gender==='F'?'ሴት':'',st.age||'',st.guardian||'',st.phone||'',...cols.map(c=>d[c]===1?'✓':d[c]===0?'✗':''),p,held?Math.round(p/held*100)+'%':''];});
   excelFile('attendance-'+App.cls+'-'+MONTHS[App.month]+'-'+y+'.xls',headers,rows);
 }
 async function exportMarks(){
@@ -1695,6 +1706,11 @@ const ACT = {
   att: el => { if (!can('attendance.edit') || !canClass(App.cls)) return deny(); const { data, key } = App.ctx; const sid = el.dataset.sid, c = el.dataset.col; const d = (data[sid] = data[sid] || {});
     if (d[c] === undefined) d[c] = 1; else if (d[c] === 1) d[c] = 0; else delete d[c];
     if (!Object.keys(d).length) delete data[sid]; Store.set(key, data); paintAtt(); },
+  attweeks: el => { if (!can('attendance.edit') || !canClass(App.cls)) return deny(); const { data, key, list } = App.ctx; const W = attWeeks(data), nw = Math.min(5, Math.max(4, W + (+el.dataset.d))); if (nw === W) return;
+    if (nw === 4) { const has = list.some(s => data[s.id] && (data[s.id]['5s'] !== undefined || data[s.id]['5u'] !== undefined)); if (has && !confirm('Week 5 has attendance marks. Remove week 5 and delete those marks?')) return;
+      Object.keys(data).forEach(k => { if (k === '_m') return; const d = data[k]; delete d['5s']; delete d['5u']; if (!Object.keys(d).length) delete data[k]; });
+      if (data._m && data._m.d) { delete data._m.d['5s']; delete data._m.d['5u']; } }
+    data._m = data._m || {}; data._m.w = nw; Store.set(key, data); paintAtt(); },
   attall: el => { if (!can('attendance.edit') || !canClass(App.cls)) return deny(); const { data, key, list } = App.ctx; const c = el.dataset.col; const all = list.length && list.every(s => data[s.id] && data[s.id][c] === 1);
     list.forEach(s => { const d = (data[s.id] = data[s.id] || {}); if (all) delete d[c]; else d[c] = 1; if (!Object.keys(d).length) delete data[s.id]; });
     Store.set(key, data); paintAtt(); },
@@ -1713,6 +1729,7 @@ window.addEventListener('afterprint', () => document.body.classList.remove('pm')
 document.addEventListener('input', e => {
   const t = e.target;
   if (t.classList && t.classList.contains('mk')) onMark(t);
+  else if (t.classList && t.classList.contains('adate')) { if (!can('attendance.edit') || !canClass(App.cls)) return deny(); const { data, key } = App.ctx; const m = (data._m = data._m || {}); m.d = m.d || {}; const v = t.value.trim(); if (v) m.d[t.dataset.col] = v; else delete m.d[t.dataset.col]; if (m.w == null) m.w = attWeeks(data); Store.set(key, data); }
   else if (t.id === 'stq') { App.q = t.value; paintStudents(); }
   else if (t.id === 'passMark') { App.pass = parseFloat(t.value) || 0; paintPromo(); }
 });
